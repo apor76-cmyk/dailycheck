@@ -21,26 +21,30 @@
   --text:#e5e7eb;
   --border:#1f2937;
 }
-
 body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system}
 .container{max-width:950px;margin:auto;padding:16px}
 .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:12px}
-.area-bar{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.area-bar{display:flex;gap:10px;margin-bottom:10px;flex-wrap:wrap}
 .area-btn{padding:6px 12px;border-radius:12px;border:1px solid var(--border);cursor:pointer;background:#f1f3f5}
 .area-btn.active{background:var(--accent);color:#fff;border:none}
 input,textarea{width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:transparent;color:var(--text)}
 button{border:none;background:var(--accent);color:#fff;padding:6px 10px;border-radius:8px;cursor:pointer}
 .secondary{background:#9ca3af}
-.record{border:1px solid var(--border);border-radius:12px;padding:10px;margin-bottom:8px}
+.record{border:1px solid var(--border);border-radius:12px;padding:10px;margin-top:8px}
 .group-title{font-size:13px;color:var(--sub);margin-top:8px;font-weight:600}
 .select-row{display:flex;gap:6px}
 .select-row button{flex:1}
+.record-field-name{color:var(--ios-orange);font-weight:600}
 
-/* 🔶 저장된 기록 필드명 색상 */
-.record-field-name{
-  color:var(--ios-orange);
-  font-weight:600;
+/* modal */
+.modal{
+ position:fixed; inset:0; background:rgba(0,0,0,.4);
+ display:none; align-items:center; justify-content:center;
 }
+.modal-box{
+ background:#fff; padding:20px; border-radius:14px; width:300px;
+}
+.dark .modal-box{background:#111827}
 </style>
 </head>
 
@@ -48,6 +52,7 @@ button{border:none;background:var(--accent);color:#fff;padding:6px 10px;border-r
 <div class="container">
 
 <button onclick="toggleDark()">🌙 다크모드</button>
+<button onclick="openTokenModal()">GitHub 토큰 입력</button>
 
 <div class="area-bar" id="areaBar"></div>
 
@@ -86,48 +91,38 @@ button{border:none;background:var(--accent);color:#fff;padding:6px 10px;border-r
 
 <div class="card">
 <b>GitHub 동기화</b>
-<input id="tokenInput" placeholder="GitHub Token">
-<button onclick="saveToken()">토큰 저장</button>
-<button class="secondary" onclick="resetToken()">토큰 초기화</button>
-<div style="margin-top:8px">
 <button onclick="upload()">업로드</button>
 <button class="secondary" onclick="download()">다운로드</button>
 </div>
+
 </div>
 
+<!-- TOKEN MODAL -->
+<div class="modal" id="tokenModal">
+  <div class="modal-box">
+    <b>GitHub 토큰 입력</b>
+    <input id="tokenInput" placeholder="토큰 입력">
+    <button onclick="setToken()">확인</button>
+  </div>
 </div>
 
 <script>
-const GITHUB = {
-  user:"apor76-cmyk",
-  repo:"data",
-  path:"data/dailycheck.json"
-};
+const GITHUB={user:"apor76-cmyk",repo:"data",path:"data/dailycheck.json"};
 
 let db=JSON.parse(localStorage.getItem("recordDB")||'{"areas":[]}');
 let currentArea=null,currentGroup=null,currentField=null,editingRecord=null;
-let token=localStorage.getItem("ghToken")||"";
-if(token) tokenInput.value=token;
+let token=""; // 메모리 저장
 
 const save=()=>localStorage.setItem("recordDB",JSON.stringify(db));
-
 function toggleDark(){document.body.classList.toggle("dark")}
 
-function saveToken(){
- token=tokenInput.value.trim();
- localStorage.setItem("ghToken",token);
- alert("토큰 저장됨");
-}
-function resetToken(){
- localStorage.removeItem("ghToken");
- token="";
- tokenInput.value="";
- alert("토큰 초기화됨");
-}
+/* TOKEN */
+function openTokenModal(){tokenModal.style.display="flex"}
+function setToken(){token=tokenInput.value.trim();tokenModal.style.display="none";}
 
 /* AREA */
 function addArea(){if(!areaInput.value)return;db.areas.push({id:Date.now(),name:areaInput.value,groups:[],records:[]});areaInput.value="";save();renderAreas();}
-function selectArea(id){currentArea=db.areas.find(a=>a.id===id);areaInput.value=currentArea.name;currentGroup=null;currentField=null;renderAreas();renderForm();renderRecords();}
+function selectArea(id){currentArea=db.areas.find(a=>a.id===id);renderAreas();renderForm();renderRecords();}
 function updateArea(){if(currentArea&&areaInput.value){currentArea.name=areaInput.value;save();renderAreas();}}
 function deleteArea(){if(!currentArea)return;db.areas=db.areas.filter(a=>a!==currentArea);currentArea=null;save();renderAreas();renderForm();renderRecords();}
 
@@ -152,7 +147,7 @@ function renderForm(){
  `).join("")+`<button onclick="saveRecord()">기록 저장</button>`;
 }
 
-/* RECORD */
+/* RECORD SAVE */
 function saveRecord(){
  let values={};
  document.querySelectorAll("[data-field]").forEach(i=>values[i.dataset.field]=i.value);
@@ -160,58 +155,64 @@ function saveRecord(){
  else{currentArea.records.unshift({id:Date.now(),values});}
  save();renderRecords();renderForm();
 }
-function editRecord(id){editingRecord=currentArea.records.find(r=>r.id===id);Object.entries(editingRecord.values).forEach(([k,v])=>{const el=document.querySelector(`[data-field="${k}"]`);if(el)el.value=v;});}
-function deleteRecord(id){currentArea.records=currentArea.records.filter(r=>r.id!==id);save();renderRecords();}
 
-/* RENDER */
+/* RECORD LIST = 버튼 */
 function renderRecords(){
  if(!currentArea){records.innerHTML="";return;}
  records.innerHTML=currentArea.records.map(r=>{
-   let grouped={};
-   Object.entries(r.values).forEach(([k,v])=>{
-     const [gid,fid]=k.split("-");
-     if(!grouped[gid])grouped[gid]=[];
-     grouped[gid].push({fid,value:v});
-   });
-   return `<div class="record">
-     ${Object.entries(grouped).map(([gid,fields])=>{
-       const g=currentArea.groups.find(x=>x.id==gid);
-       return `<div class="group-title">${g?.name||""}</div>
-         ${fields.map(f=>{
-           const field=currentArea.groups.find(gr=>gr.id==gid).fields.find(ff=>ff.id==f.fid);
-           return `<div><span class="record-field-name">${field?.name}</span><br>${f.value}</div>`;
-         }).join("")}`;
-     }).join("")}
+   const firstVal=Object.values(r.values)[0]||"기록";
+   return `
+   <button onclick="toggleRecord(${r.id})">${firstVal}</button>
+   <div id="rec-${r.id}" style="display:none" class="record">
+     ${renderRecordDetail(r)}
      <button onclick="editRecord(${r.id})">수정</button>
      <button class="secondary" onclick="deleteRecord(${r.id})">삭제</button>
    </div>`;
  }).join("");
 }
+
+function renderRecordDetail(r){
+ let grouped={};
+ Object.entries(r.values).forEach(([k,v])=>{
+   const [gid,fid]=k.split("-");
+   if(!grouped[gid])grouped[gid]=[];
+   grouped[gid].push({fid,value:v});
+ });
+ return Object.entries(grouped).map(([gid,fields])=>{
+   const g=currentArea.groups.find(x=>x.id==gid);
+   return `<div class="group-title">${g?.name||""}</div>
+   ${fields.map(f=>{
+     const field=currentArea.groups.find(gr=>gr.id==gid).fields.find(ff=>ff.id==f.fid);
+     return `<div><span class="record-field-name">${field?.name}</span><br>${f.value}</div>`;
+   }).join("")}`;
+ }).join("");
+}
+
+function toggleRecord(id){
+ const el=document.getElementById("rec-"+id);
+ el.style.display=el.style.display==="none"?"block":"none";
+}
+
+function editRecord(id){editingRecord=currentArea.records.find(r=>r.id===id);Object.entries(editingRecord.values).forEach(([k,v])=>{const el=document.querySelector(`[data-field="${k}"]`);if(el)el.value=v;});}
+function deleteRecord(id){currentArea.records=currentArea.records.filter(r=>r.id!==id);save();renderRecords();}
+
+/* AREA RENDER */
 function renderAreas(){areaBar.innerHTML=db.areas.map(a=>`<div class="area-btn ${currentArea?.id===a.id?"active":""}" onclick="selectArea(${a.id})">${a.name}</div>`).join("");}
 
 /* GITHUB */
 async function upload(){
- if(!token) return alert("토큰 필요");
-
+ if(!token) return alert("토큰 입력 필요");
  const url=`https://api.github.com/repos/${GITHUB.user}/${GITHUB.repo}/contents/${GITHUB.path}`;
  const content=btoa(unescape(encodeURIComponent(JSON.stringify(db,null,2))));
-
  let sha=null;
  const res=await fetch(url,{headers:{Authorization:"token "+token}});
  if(res.ok){const json=await res.json();sha=json.sha;}
-
- await fetch(url,{
-  method:"PUT",
-  headers:{Authorization:"token "+token},
-  body:JSON.stringify({message:"update",content,sha})
- });
-
+ await fetch(url,{method:"PUT",headers:{Authorization:"token "+token},body:JSON.stringify({message:"update",content,sha})});
  alert("업로드 완료");
 }
 
 async function download(){
- if(!token) return alert("토큰 필요");
-
+ if(!token) return alert("토큰 입력 필요");
  const url=`https://api.github.com/repos/${GITHUB.user}/${GITHUB.repo}/contents/${GITHUB.path}`;
  const res=await fetch(url,{headers:{Authorization:"token "+token}});
  const json=await res.json();
