@@ -73,8 +73,9 @@ input,textarea{width:100%;padding:8px;border:1px solid var(--border);border-radi
 <div id="records"></div>
 
 <div class="card">
-<b>GitHub 동기화</b>
-<button onclick="openTokenModal()">토큰 입력</button>
+<b>GitHub 동기화</b><br><br>
+<button onclick="openTokenModal()">토큰 입력 / 변경</button>
+<button class="secondary" onclick="resetToken()">토큰 초기화</button><br><br>
 <button onclick="upload()">업로드</button>
 <button class="secondary" onclick="download()">다운로드</button>
 </div>
@@ -95,13 +96,25 @@ const GITHUB={user:"apor76-cmyk",repo:"data",path:"data/dailycheck.json"};
 let db=JSON.parse(localStorage.getItem("recordDB")||'{"areas":[]}');
 let currentArea=null;
 let editingRecord=null;
-let token="";
+
+let token=localStorage.getItem("githubToken")||"";
 
 const save=()=>localStorage.setItem("recordDB",JSON.stringify(db));
 
 function toggleDark(){document.body.classList.toggle("dark")}
+
 function openTokenModal(){tokenInput.value="";tokenModal.style.display="flex";}
-function setToken(){token=tokenInput.value.trim();tokenInput.value="";tokenModal.style.display="none";}
+function setToken(){token=tokenInput.value.trim();localStorage.setItem("githubToken",token);tokenModal.style.display="none";}
+function resetToken(){if(!confirm("토큰 삭제할까요?"))return;token="";localStorage.removeItem("githubToken");alert("토큰 초기화 완료");}
+
+/* UTF8 Base64 */
+function toBase64(str){
+ return btoa(new TextEncoder().encode(str).reduce((d,b)=>d+String.fromCharCode(b),''));
+}
+function fromBase64(b64){
+ const bytes=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
+ return new TextDecoder().decode(bytes);
+}
 
 /* AREA */
 function addArea(){if(!areaInput.value)return;db.areas.push({id:Date.now(),name:areaInput.value,groups:[],records:[]});areaInput.value="";save();renderAreas();}
@@ -111,33 +124,13 @@ function deleteArea(){if(!currentArea)return;db.areas=db.areas.filter(a=>a!==cur
 
 /* GROUP */
 function addGroup(){if(!currentArea||!groupInput.value)return;currentArea.groups.push({id:Date.now(),name:groupInput.value,fields:[]});groupInput.value="";save();renderForm();}
-function updateGroup(){
- if(!currentArea||!groupInput.value)return;
- const g=currentArea.groups[currentArea.groups.length-1];
- if(g){g.name=groupInput.value;save();renderForm();}
-}
-function deleteGroup(){
- if(!currentArea)return;
- currentArea.groups.pop();
- save();renderForm();
-}
+function updateGroup(){if(!currentArea||!groupInput.value)return;const g=currentArea.groups[currentArea.groups.length-1];if(g){g.name=groupInput.value;save();renderForm();}}
+function deleteGroup(){if(!currentArea)return;currentArea.groups.pop();save();renderForm();}
 
 /* FIELD */
 function addField(){if(!currentArea||!fieldInput.value)return;currentArea.groups[currentArea.groups.length-1].fields.push({id:Date.now(),name:fieldInput.value});fieldInput.value="";save();renderForm();}
-function updateField(){
- if(!currentArea||!fieldInput.value)return;
- const g=currentArea.groups[currentArea.groups.length-1];
- if(!g) return;
- const f=g.fields[g.fields.length-1];
- if(f){f.name=fieldInput.value;save();renderForm();}
-}
-function deleteField(){
- if(!currentArea)return;
- const g=currentArea.groups[currentArea.groups.length-1];
- if(!g) return;
- g.fields.pop();
- save();renderForm();
-}
+function updateField(){if(!currentArea||!fieldInput.value)return;const g=currentArea.groups[currentArea.groups.length-1];if(!g)return;const f=g.fields[g.fields.length-1];if(f){f.name=fieldInput.value;save();renderForm();}}
+function deleteField(){if(!currentArea)return;const g=currentArea.groups[currentArea.groups.length-1];if(!g)return;g.fields.pop();save();renderForm();}
 
 /* FORM */
 function renderForm(){
@@ -148,36 +141,35 @@ function renderForm(){
 `).join("")+`<button onclick="saveRecord()">기록 저장</button>`;
 }
 
-/* SAVE / EDIT */
+/* SAVE */
 function saveRecord(){
-let values={};
-document.querySelectorAll("[data-field]").forEach(i=>values[i.dataset.field]=i.value);
-if(editingRecord){editingRecord.values=values;editingRecord=null;}
-else{currentArea.records.unshift({id:Date.now(),values});}
-save();renderRecords();renderForm();
+ let values={};
+ document.querySelectorAll("[data-field]").forEach(i=>values[i.dataset.field]=i.value);
+ if(editingRecord){editingRecord.values=values;editingRecord=null;}
+ else{currentArea.records.unshift({id:Date.now(),values});}
+ save();renderRecords();renderForm();
 }
 
 function editRecord(id){
-editingRecord=currentArea.records.find(r=>r.id===id);
-Object.entries(editingRecord.values).forEach(([k,v])=>{
-const el=document.querySelector(`[data-field="${k}"]`);
-if(el)el.value=v;
-});
-window.scrollTo({top:0,behavior:"smooth"});
+ editingRecord=currentArea.records.find(r=>r.id===id);
+ Object.entries(editingRecord.values).forEach(([k,v])=>{
+   const el=document.querySelector(`[data-field="${k}"]`);
+   if(el)el.value=v;
+ });
+ window.scrollTo({top:0,behavior:"smooth"});
 }
 
 function deleteRecord(id){
-if(!confirm("삭제할까요?")) return;
-currentArea.records=currentArea.records.filter(r=>r.id!==id);
-save();renderRecords();
+ if(!confirm("삭제할까요?")) return;
+ currentArea.records=currentArea.records.filter(r=>r.id!==id);
+ save();renderRecords();
 }
 
-/* RECORD LIST */
 function renderRecords(){
-if(!currentArea){records.innerHTML="";return;}
-records.innerHTML=currentArea.records.map(r=>{
-const firstValue=Object.values(r.values)[0]||"기록";
-return `<button onclick="toggleDetail(${r.id})">${firstValue}</button>
+ if(!currentArea){records.innerHTML="";return;}
+ records.innerHTML=currentArea.records.map(r=>{
+ const firstValue=Object.values(r.values)[0]||"기록";
+ return `<button onclick="toggleDetail(${r.id})">${firstValue}</button>
    <div class="record" id="detail-${r.id}" style="display:none">
      ${Object.entries(r.values).map(([k,v])=>{
        const [gid,fid]=k.split("-");
@@ -191,33 +183,42 @@ return `<button onclick="toggleDetail(${r.id})">${firstValue}</button>
 }
 
 function toggleDetail(id){
-const el=document.getElementById("detail-"+id);
-el.style.display=el.style.display==="none"?"block":"none";
+ const el=document.getElementById("detail-"+id);
+ el.style.display=el.style.display==="none"?"block":"none";
 }
 
 function renderAreas(){areaBar.innerHTML=db.areas.map(a=>`<div class="area-btn ${currentArea?.id===a.id?"active":""}" onclick="selectArea(${a.id})">${a.name}</div>`).join("");}
 
 /* GITHUB */
 async function upload(){
-if(!token) return alert("토큰 입력 필요");
-const url=`https://api.github.com/repos/${GITHUB.user}/${GITHUB.repo}/contents/${GITHUB.path}`;
-const content=btoa(unescape(encodeURIComponent(JSON.stringify(db,null,2))));
-let sha=null;
-const res=await fetch(url,{headers:{Authorization:"token "+token}});
-if(res.ok){const json=await res.json();sha=json.sha;}
-await fetch(url,{method:"PUT",headers:{Authorization:"token "+token},body:JSON.stringify({message:"update",content,sha})});
-alert("업로드 완료");
-token="";
+ if(!token) return alert("토큰 입력 필요");
+ const url=`https://api.github.com/repos/${GITHUB.user}/${GITHUB.repo}/contents/${GITHUB.path}`;
+ const content=toBase64(JSON.stringify(db,null,2));
+ try{
+   let sha=null;
+   const getRes=await fetch(url,{headers:{Authorization:`Bearer ${token}`}});
+   if(getRes.ok){const json=await getRes.json();sha=json.sha;}
+   const putRes=await fetch(url,{
+     method:"PUT",
+     headers:{Authorization:`Bearer ${token}`,"Content-Type":"application/json"},
+     body:JSON.stringify({message:"update data",content,sha})
+   });
+   if(!putRes.ok) return alert("업로드 실패");
+   alert("업로드 완료");
+ }catch(e){alert("업로드 오류");}
 }
 
 async function download(){
-if(!token) return alert("토큰 입력 필요");
-const url=`https://api.github.com/repos/${GITHUB.user}/${GITHUB.repo}/contents/${GITHUB.path}`;
-const res=await fetch(url,{headers:{Authorization:"token "+token}});
-const json=await res.json();
-db=JSON.parse(decodeURIComponent(escape(atob(json.content))));
-save();renderAreas();renderRecords();
-token="";
+ if(!token) return alert("토큰 입력 필요");
+ const url=`https://api.github.com/repos/${GITHUB.user}/${GITHUB.repo}/contents/${GITHUB.path}`;
+ try{
+   const res=await fetch(url,{headers:{Authorization:`Bearer ${token}`}});
+   if(!res.ok) return alert("다운로드 실패");
+   const json=await res.json();
+   db=JSON.parse(fromBase64(json.content));
+   save();renderAreas();renderRecords();
+   alert("다운로드 완료");
+ }catch(e){alert("다운로드 오류");}
 }
 
 renderAreas();
